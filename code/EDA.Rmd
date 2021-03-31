@@ -1,0 +1,797 @@
+---
+title: "Dulux  EDA"
+author: "Alain Lesaffre"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+---
+```{r  init, echo=FALSE, message=FALSE, warning=FALSE}
+ library(tidyverse)
+library(dplyr)
+library(skimr)
+library(DataExplorer)
+library(ggplot2)
+library(ggshadow)
+library(readr)
+library(readxl)
+library(cluster)
+library(gower)
+library(caret)
+library(Rtsne)
+source("./common.R")
+# Preprocss raw 
+raw_data       <-janitor::clean_names(readxl::read_xlsx(dulux_raw_file, sheet="C4C Lead data")) %>%
+                        dplyr::select( id, creation_date_time, origin_type_code_text) %>%
+                        dplyr::mutate( creation_date =stringr::str_remove( creation_date_time, ".0{7}[:space:]\\+00:00$"),
+                                       creation_date =as.POSIXct(creation_date)) %>%
+                        dplyr::filter( !stringr::str_detect(origin_type_code_text, "^External")) %>%
+                        dplyr::rename( lead_id = id)  %>%
+                        dplyr::select(-creation_date_time) 
+                      
+
+#  End preprocess raw 
+
+initial_data  <-janitor::clean_names(readxl::read_xlsx(dulux_initial_clean )) %>%
+                            dplyr::rename( sale = opp_id_y_n) %>%
+                            dplyr::filter( account_life_cycle_status_code_text == "Active") 
+                        
+
+# In case of deeper analysis, not used in first version 
+all_remarks    <- initial_data %>% 
+                           dplyr::select( lead_id, bci_remarks)
+
+initial_data    <- initial_data %>%
+                           dplyr::select(-bci_remarks)
+
+```
+
+# Summary
+
+The first analysis for the paint company **Dulux**. The current document is the first analysis concerning the segmentation of **Dulux** customer, the final aim is to build a scaling of the new requests. 
+
+The current analysis is made of the following three parts:
+
+1. First analysis of the customers life cycle, this analysis is under development and its effect has not been conducted due to the limitation of the current data set used. 
+
+2. Analysis of the four meaningful variables and their transformations. 
+
+3. Measurements of the effect of some variables using clustering for homogeneity and linear model for measurement of effects and interpretability. **In no case those models have been built for deployment, the models are purely built for effect measurements**. 
+
+Based on those three steps this first analysis shows that: 
+
+1. The family of requests is heterogeneous and sub families must be built.
+
+2. Some variables have to be transformed to leverage the effect.
+
+3. Based on the current data set a model with *strong* effect will be challenging and ensemble method should be used. 
+
+4. Usage of ensemble on the transformed data. This is the last stage of the analysis. The method is not transparent but delivers good results on the **hot** sub-sample. At writing time and for analysis *(that is not split for test)*, we could reach an **error rate less than 2%**. 
+
+In summary, it appears that to reach a good results on the current data set an ensemble of models should be used, this method will hide the interpretability of the decision, but could deliver a **very low error rate of about 1% to 1%** on the whole *(total miss-classification)*. This method will have the advantage of avoiding the need of clustering with the disavantage of losing in interpretability. 
+
+# The data set
+
+We have few variables, which have no meaning such:  
+
+1. name not really a grouping variable, as many name as many observations.
+
+2. lead_id only a reference for internal reference.
+
+3. user_status_code_text  similar to sale variable used to conduct the analysis, 
+
+4. group_code_text only one value.
+
+5. account_life_cycle_status_code_text this variable has two values, active or obsolete only 12 are obsolete, the data set is reduced to **Active** and this variable is ignored. 
+
+6.life_cycle_status_code_text as this is an overlap with the variable **user_status_code_text**.
+
+7. priority_code_text  only one value *Normal*.
+
+8. bci_project_type is transformed into type in the following paragraphs. 
+
+The sales lead is unbalanced and the table below show the actual distribution, this unbalance will create issues based on the algorithm used, it could be we use over sampling.
+
+```{r dspresponse, echo=FALSE}
+knitr::kable(prop.table(table(initial_data$sale)))
+```
+
+The variable **bci_remarks**, which includes the details of the project is not consider in the current analysis. 
+
+## Some variables of concern
+
+The variables **user_status_code_text** is ignored as the state *Converted* means *sales* in this document, for information it is not exactly the case, as some are not with sales. 
+
+
+#  The sales customers
+
+The variable company could be of more interest as the relations make an important part of the business life. The table below shows the distribution of sales or not based on the company, as we have more than 2000 companies we could group the one with small frequency.  The frequency of sales by company is the following, it appears here that **Dulux** have very few recurring sales apart from the exceptions companies. 
+
+```{r nob_sale, echo=FALSE}
+frequence_sale_table <-with(initial_data, table(sale, company))
+frequence_sale <-frequence_sale_table[2,]
+frequence_sale <- frequence_sale[frequence_sale > 0]
+companies_sales  <-which( frequence_sale > 0 )
+top_companies_sales <-which( frequence_sale >= 4)
+top_company <-attributes(frequence_sale_table)[[2]][2]$company[top_companies_sales]
+
+
+hist(frequence_sale, 
+     breaks=100,
+     main="Distribution of sales per company", 
+     ylab="Frequency", 
+     xlab="Number Sales",
+     col="orange")
+```
+
+The main question here, would be what are the differences between the low sales and the recurring customers with more than five sales. The `r length(top_company )` companies with more than five sales are exceptions for**Dulux** and are  **recurring customers**, the following table summarized those numbers, in few words **Dulux** has very few customers.
+
+|   Company Sales         |    Number Companies  |
+|-------------------------|----------------------|
+|    Companies with minimum one sale |  `r length(frequence_sale)` |
+|    Companies with more than 3 sales | `r length(top_companies_sales )` |
+|    Represent of total companies             | `r round(length(frequence_sale) / length(unique(initial_data$company)),3) *100`  %| 
+
+The second question is: are those customers constant customers. It means does those customers did not respond for sale, we should be careful with the following values as time is not mentioned in the current data set. 
+
+We notice with cautious, that the number of non sale is more or less equal for the companies having sales with **Dulux**. One question we could have here is the miss sale due to the type of project on those companies or the acquisition is driven by time. 
+
+```{r faithcustomer, echo=FALSE}
+sales_not_done <-frequence_sale_table[1,companies_sales]
+hist(sales_not_done , 
+     breaks=100,
+     main="Distribution of missing sale per company", 
+     ylab="Frequency", 
+     xlab="Number Sales",
+     col="orange")
+
+
+```
+
+## The customer life cycle 
+
+The hypothesis is that once a customer is acquired, it will re-buy, this hypothesis is specially true in **B2B**. 
+
+```{r sale_custoemr, echo=FALSE}
+dulux_customers <- initial_data %>%
+                         dplyr::group_by(company ) %>%
+                         dplyr::mutate(sale_on = any(sale == 1)) %>%
+                         dplyr::arrange(lead_id) %>%
+                         dplyr::mutate(sequence =1:n()) %>%
+                         dplyr::filter( sale_on == TRUE)
+
+
+```
+
+One question could be how many contact does **Dulux** has before to get one sale following shown this distribution. We can say that on the whole **dulux** manages to have most its sale by first contact *(we have `r length(unique(dulux_customers$company)) customers in total in the current data set*. 
+
+
+```{r dsp_contact, echo=FALSE}
+
+dulux_customers %>% 
+     dplyr::filter( sale== 1) %>%
+  ggplot(data=.) +
+  geom_histogram( aes( x= sequence), col="blue", fill="lightblue", bins=50) +
+  theme_minimal()
+
+
+```
+The acquisition could be a long process, as we notice on this long tail. One could raise the question based on the effort and the distribution over time if the amount of effort for one customer is always necessary, apart from the strategic intent. 
+
+As mentioned below, the **qualification_level_code_text** variable defines a segment of observation with high level of sale, in case of customer cycle the sale if **hot** by a ratio of **1.6** for this data set. 
+
+
+## The projects 
+
+The customer reference is associated with a type project. The variable **bci_project_status** qualified the project and we have status such as **Abandoned**, which disqualify the project and therefore could not be consider as a miss sale. 
+
+The most interesting states are as follow concerning the size:
+
+1. Tenders Named 
+
+2. Construction Commenced 
+
+In few words this variable will have effect and can be considered as predictor. We shall group the below 5% sale in similar group as they are below the current sale % of the full data set.  
+
+```{r project_state, echo=FALSE}
+
+project_sales <-as.data.frame.table(table(initial_data$bci_project_status, initial_data$sale))
+project_sales  <-tidyr::pivot_wider(project_sales,
+                          names_from = Var2,
+                          values_from = Freq)
+names(project_sales) <-c("State", "No_Sale", "Sale")
+project_sales        <- project_sales %>%
+                            dplyr::mutate( Prob_sale =  round((Sale / (No_Sale+ Sale) * 100),3)) %>%
+                            dplyr::arrange( dplyr::desc(Prob_sale)) %>%
+                            dplyr::mutate( State = factor(State, levels = State))
+
+ggplot( data = project_sales) +
+  geom_shadowline(aes(x=State, y= Prob_sale, group=1), color="orange") +
+  theme_minimal()+
+  theme(axis.text.x=element_text(angle =- 60, vjust = 0.5)) +
+  labs( title="Project state to sale",
+        x="State",
+        y="Percent sale")
+
+#  We modifiy the original dat set here 
+project_less <-project_sales %>% dplyr::filter( Prob_sale <=5)  %>%
+                             dplyr::mutate( State = as.character(State))
+initial_data  <- initial_data %>%
+                        dplyr::mutate( project_state =ifelse(bci_project_status %in% project_less$State,
+                                                             "low_chance",
+                                                             bci_project_status),
+                                       log_value = log(estimated_project_value),
+                                       bci_project_type =stringr::str_to_lower(bci_project_type))
+
+```
+
+The transformed project status is the following, more transformation could be conducted:
+
+```{r new_project, echo=FALSE}
+knitr::kable(as.data.frame.table(table(initial_data$project_state)) %>%
+                  dplyr::arrange(dplyr::desc(Freq)) %>%
+                  dplyr::rename('Project State'= Var1,
+                                'Number occurences' = Freq))
+                
+```
+
+## About Dulux rating
+
+The field **qualification_level_code_text** assign *hot* or *warm* to each observation. The following table shows the frequency distribution given sales *(conditional distribution)*. We can notice that **hot** is associated with higher sales success than **warm**, we have a conditional probability of 0.25 in case of **hot**. 
+
+How this variable is assigned need to be assessed? It could be that this variable is associated with the project value. This selection could be used  as we have two groups, the **warm** and the **hot**.
+
+
+```{r dspwarm, echo=FALSE}
+knitr::kable(round(addmargins(prop.table(table(initial_data$qualification_level_code_text, initial_data$sale))),2))
+```
+
+The meaning of **qualification_level_code_text** is explored using the values of the project (**estimated_project_value**). The following graphic in log scale shows the two distributions. One could notice that **Dulux** targets the high projects value customers, and have high success rate of sale. 
+
+
+```{r hotproject, echo=FALSE}
+ggplot(data=initial_data) +
+    geom_density(aes( x= log_value, 
+                     group= qualification_level_code_text, 
+                     fill= qualification_level_code_text,
+                     col=qualification_level_code_text), alpha=.6) +
+    theme_minimal()+
+    labs( title="Qualification and log of project value",
+          x="Log project value",
+          y= "Density")
+
+ test_project_value <-wilcox.test(log_value~ qualification_level_code_text, data=initial_data  %>%
+                                                     dplyr::mutate( log_value = log(estimated_project_value)))
+
+```
+
+From the statistical point of view, we are obviously not normal, therefore the test of significance in this case is non parametric, for people interested the **Wilcoxon–Mann–Whitney** proecdure is used. The p-value is of `r test_project_value$p.value`, which confirm the significance of differences. 
+
+In few words **Dulux** has more sales with customer project centered around the 24 millions $ in project value. 
+
+## Process of selection 
+
+Not all lead are selected for processing, the variable **user_status_code_text** delivers the state of selection. The status is not know very well, we could disqualified the *Unactioned* for the first analysis, we do use the hypothesis that they could be different that the one select. Those observations could be taken for verification once the selection criteria have been defined. 
+
+The table below shows the status related to sale *(condition probability)*.
+
+```{r status_observation, echo=FALSE}
+knitr::kable(table(initial_data$sale, initial_data$user_status_code_text))
+```
+
+
+## Where the sales took place? 
+
+Due to demographic, the sales take place in the denser states. The distribution of sales  by states are the following.  The state with the most success is South Australia, Western Australia and Queensland. These three states have a convection rate of about 10% or nearly double the average. 
+
+
+```{r sales_states, echo=FALSE}
+knitr::kable(table( initial_data$sale, initial_data$bci_project_state))
+```
+
+
+## Type of project 
+
+The type of project,which is certainly aligned with the type of paint product offered is made of mainly categories in the original data set. 
+
+This variable **bci_project_type**  is re-categorized, to avoid dispersion using the following  mapping:
+
+1. apartment  direct mapping from apartment
+
+2. townhouse  key words  townhouse| house | chalet 
+
+3. commercial  key words commercial|motel|hotel|showroom|office
+
+4. road  key words road|streetscap|intersection
+
+5. aged care key words aged care|retirement village|senior living villa|senior living unit
+
+6. hospitality key words hotel|restaurant 
+
+7 public key words prison|school|classroom|community center|social housing|bridge|childcare centre|hospital|medical|water infrastructure|childcare centre
+
+8. road  key words road|cycle|streetscap|intersection
+
+9. other all the other references
+
+This mapping should be reviewed for the final model as **Dulux** could be interested in other type of work.  
+
+```{r group_type, echo=FALSE}
+initial_data <-initial_data %>% 
+             dplyr::mutate( type = ifelse( stringr::str_detect(bci_project_type, "apartment"),
+                                           "apartment", 
+                                           NA),
+                            type = ifelse( is.na(type) & stringr::str_detect(bci_project_type, "townhouse"),
+                                           "townhouse", 
+                                           type),
+                            type = ifelse( is.na(type) & stringr::str_detect(bci_project_type, "house|chalet"),
+                                           "house", 
+                                           type),
+                            type = ifelse( is.na(type) & stringr::str_detect(bci_project_type, "commercial|motel|hotel|showroom"),
+                                           "commercial", 
+                                           type),
+                             type = ifelse( is.na(type) & stringr::str_detect(bci_project_type, "office"),
+                                           "commercial", 
+                                           type),
+                             type = ifelse( is.na(type) & stringr::str_detect(bci_project_type, "road"),
+                                           "road", 
+                                           type),
+                            type = ifelse( is.na(type) & stringr::str_detect(bci_project_type, "streetscap|intersection"),
+                                           "road", 
+                                           type),
+                            type = ifelse( is.na(type) & stringr::str_detect(bci_project_type, "aged care"),
+                                           "aged_care", 
+                                           type),
+                            type = ifelse( is.na(type) & stringr::str_detect(bci_project_type, "retirement village|senior living villa|senior living unit"),
+                                           "aged_care", 
+                                           type),
+                            type = ifelse( is.na(type) & stringr::str_detect(bci_project_type, "cycle"),
+                                           "road", 
+                                           type),
+                            type = ifelse( is.na(type) & stringr::str_detect(bci_project_type, "hotel"),
+                                           "hospitality", 
+                                           type),
+                             type = ifelse( is.na(type) & stringr::str_detect(bci_project_type, "restaurant"),
+                                           "hospitality", 
+                                           type),
+                            type = ifelse( is.na(type) & stringr::str_detect(bci_project_type, "prison|school|classroom|community centre|social housing|bridge|childcare centre|hospital|medical|water infrastructure|childcare centre"),
+                                           "public", 
+                                           type),
+                            type  = ifelse( is.na(type), 
+                                            "other",
+                                            type)
+                            )
+```
+
+Based on this project type, where is **Dulux** a strong player? The table below summarized the **Sales** per type of projects. The main type of projects is **apartment** by size with more than 10% success, if we check by probability **hospitality** would deliver an higher probability. 
+
+The question is certainly where is the value? At the moment we do not have the **dulux** sale value but only the total project value. 
+
+```{r type_sale, echo=FALSE}
+knitr::kable(table(initial_data$type, initial_data$sale))
+```
+
+The following table shows the average and median values of the projects by type of project. One could notice that the mean and median of the sale is higher that the mean median for no sale and the spread is smaller as well **(as well work with log the difference is actually very  different)**. Those numbers are aligned with the attribute **qualification_level_code_text** mentioned above. 
+
+Concerning value of project and we do the hypothesis that the percent is more or less similar for building, it appears **commercial** and **apartment** are the most valuable, for information **road** is *time wasted*.
+
+```{r project_value, echo=FALSE, message=FALSE}
+knitr::kable(initial_data %>% 
+       dplyr::group_by(type, sale) %>%
+       dplyr::summarise( median_val = median(log_value),
+                         mean_val   = mean(log_value),
+                         sd_val     =sd(log_value)))
+```
+
+
+# Do we have similarity ?
+
+To check if we have similarity, we do a clustering using the **Gower** distance as we have qualitative and continuous variables. The number of clusters has to be enhanced, we noticed that with three clusters we do not reach a compact clustering. One should keep in mind that we use a very limited number of variables. 
+
+```{r cluster_all, echo=FALSE}
+initial_data <- initial_data %>%
+                      dplyr::mutate( sale = factor(sale),
+                                     c4c_account_state = factor(c4c_account_state),
+                                     qualification_level_code_text = factor(qualification_level_code_text),
+                                     type=factor(type))
+
+
+# We build clusters based on the few variables we have, we start with three clusters , need to enhance 
+for_cluster <-initial_data  %>%
+                      dplyr::select(c4c_account_state,
+                                   qualification_level_code_text,
+                                   type,
+                                   log_value)
+
+disimilarity <-cluster::daisy( for_cluster, 
+                               metric=c("gower"))
+
+dissimilarity_clust <-pam( disimilarity , 
+                           diss = TRUE, 
+                           k = 3)
+
+# We do the reduction 
+tsne_initial <- Rtsne(disimilarity, is_distance = TRUE)
+
+tsne_sub_sample <- tsne_initial$Y %>%
+                  data.frame() %>%
+                  setNames(c("X", "Y")) %>%
+                  mutate(cluster = factor(dissimilarity_clust$clustering))
+                         
+
+ggplot( data = tsne_sub_sample) +
+        geom_point(aes(x = X, y = Y, color = cluster)) +
+        theme_minimal() +
+        labs( title = "Firts clustering",
+              x= "First Distance",
+              y="Second Distance")
+
+
+```
+
+
+# First check
+
+This section is a test and should not be used, it is an exploration.  We do the following:
+
+1. Build the data set on all observations apart from user type **Unactioned**
+
+2. Reduce the data set to four variables 
+
+3. Build logistic regression, to test if we have effect only
+
+3. Test Shapiro, we are not normal on the residual 
+
+```{r build_verif, echo=FALSE, warning=FALSE}
+# To share
+to_share   <- initial_data %>%
+                      dplyr::mutate( sale = factor(sale),
+                                     c4c_account_state = factor(c4c_account_state),
+                                     bci_project_status = factor(bci_project_status)) %>%
+                      dplyr::filter( user_status_code_text != "Unactioned")
+write.csv(to_share , "../Data/to_share.csv")
+# End to share 
+
+warm_data <- initial_data %>%
+                      dplyr::mutate( sale = factor(sale),
+                                     c4c_account_state = factor(c4c_account_state),
+                                     bci_project_status = factor(bci_project_status)) %>%
+                      dplyr::filter(qualification_level_code_text == "Warm"  & user_status_code_text != "Unactioned")
+                                     
+                                    
+warm_lm <-glm(sale~type+log_value+c4c_account_state+bci_project_status, 
+                family = binomial,
+                data= warm_data)
+
+# Shapiro normal resid 
+resid_normal_warm <-shapiro.test(resid(warm_lm))
+predict_warm     <-predict(warm_lm , type = "response")
+
+
+# Hot 
+hot_data <- initial_data %>%
+                      dplyr::mutate( sale = factor(sale),
+                                     c4c_account_state = factor(c4c_account_state),
+                                     bci_project_status = factor(bci_project_status) ) %>%
+                      dplyr::filter(qualification_level_code_text == "Hot" & user_status_code_text != "Unactioned")
+
+hot_lm <-glm(sale~type+log_value+c4c_account_state+bci_project_status,
+                family = binomial,
+                data= hot_data)
+
+resid_normal_hot <-shapiro.test(resid(hot_lm))
+predict_hot     <-predict(hot_lm , type = "response")
+hot_zero_ref    <-which(predict_hot  < .001)
+
+summary_model <-summary(hot_lm)
+
+```
+
+
+|  Test           | P-value   |
+|-----------------|-----------|
+| Shapiro  warm       | `r resid_normal_warm$p.value`   | 
+
+
+On the hot subsample  model tells us only few points, the effect mentioned does not mean we reach the significance level: 
+
+1. Apartment  in type have effect 
+
+2. log value has effect
+
+3. VIC and WA  have effect 
+
+
+For comparison with other models the **AIC** is of `r summary_model$aic`, we can use this value as benchmark with the clustered built models. 
+
+The project cycle has no effect. The following table shows the p-value for the coefficients. 
+
+```{r dspwarm_coef, echo=FALSE}
+all_coef_hot <-as.data.frame(summary_model$coefficients) %>%
+                   dplyr::rename(p_value = 'Pr(>|z|)') %>%
+                   dplyr::arrange(p_value) %>%
+                   dplyr::filter( p_value < .25)
+knitr::kable(all_coef_hot)
+```
+
+
+## The first hot model & clustering
+
+The **hot** model does not perform, as we have no significant coefficients. The residual of the model below shows that in the **Hot** sample we could have three groups of observations, the zero residual that is good prediction and two other groups. Based on optimization of clustering (we use the PAM algorithm in our case, a method more robust to outliers) it appears that we have five groups, as shown below. 
+
+```{r hotsresid, echo=FALSE}
+hist(residuals(hot_lm, type="response"),
+     breaks=100,
+     main="Residual HOT",
+     col="blue")
+```
+
+ We first test the number of clusters, the weight curve is surprising with the distance increasing with the number of clusters, it appears that sparsity plays against us in this case.  
+
+
+
+```{r histclust, echo=FALSE, message=FALSE, warning=FALSE}
+for_hot_cluster <-hot_data %>%
+                      dplyr::select(sale,
+                                    type,
+                                    log_value,
+                                    c4c_account_state,
+                                    bci_project_status)
+
+hot_disimilarity <-cluster::daisy(for_hot_cluster %>% dplyr::select(-sale), 
+                                      metric=c("gower"))
+sil_width <- c(NA)
+for(i in 2:10){
+  
+  pam_fit <- pam(hot_disimilarity,
+                 diss = TRUE,
+                 k = i)
+  
+  sil_width[i] <- pam_fit$silinfo$avg.width
+  
+}
+
+# Plot silhouette width (higher is better)
+
+plot(1:10, sil_width,
+     xlab = "Number of clusters",
+     ylab = "Silhouette Width")
+lines(1:10, sil_width)
+
+top_clust <-which( sil_width == min(sil_width, na.rm=TRUE))
+
+
+```
+
+
+We rebuild the **hot** cluster based on the optimum number of clusters presented above. 
+
+
+```{r histhot, echo=FALSE, message=FALSE, warning=FALSE}
+hot_clust_fit           <- pam(hot_disimilarity , diss = TRUE, k = top_clust)
+for_hot_cluster$cluster <- hot_clust_fit$clustering
+
+#  The three cluster for hot 
+hot_cluster_1 <- for_hot_cluster %>%
+                       dplyr::filter( cluster==1) %>%
+                       na.omit(.)
+
+hot_cluster_2 <- for_hot_cluster %>%
+                       dplyr::filter( cluster==2) %>%
+                       na.omit(.)
+
+hot_cluster_3 <- for_hot_cluster %>%
+                       dplyr::filter( cluster==3)  %>%
+                       na.omit(.)
+
+hot_cluster_4 <- for_hot_cluster %>%
+                       dplyr::filter( cluster==4)  %>%
+                       na.omit(.)
+
+hot_cluster_5 <- for_hot_cluster %>%
+                       dplyr::filter( cluster==5)  %>%
+                       na.omit(.)
+
+# We build model with cluster 
+hot_lm_clust_1 <-glm(sale~type+log_value+c4c_account_state+bci_project_status,
+                family = binomial,
+                data= hot_cluster_1)
+
+hot_lm_clust_2 <-glm(sale~type+log_value+c4c_account_state+bci_project_status,
+                family = binomial,
+                data= hot_cluster_2)
+
+hot_lm_clust_3 <-glm(sale~type+log_value+c4c_account_state+bci_project_status,
+                family = binomial,
+                data= hot_cluster_3)
+
+hot_lm_clust_4 <-glm(sale~type+log_value+c4c_account_state+bci_project_status,
+                family = binomial,
+                data= hot_cluster_4)
+
+hot_lm_clust_5 <-glm(sale~type+log_value+c4c_account_state+bci_project_status,
+                family = binomial,
+                data= hot_cluster_5)
+
+
+#
+#  We calculate the error 
+#
+optimum_clus_1  <-optimum_cut_off(hot_lm_clust_1, 
+                        hot_cluster_1,
+                        "sale")
+
+
+optimum_clus_2  <-optimum_cut_off(hot_lm_clust_2, 
+                        hot_cluster_2,
+                        "sale")
+
+optimum_clus_3  <-optimum_cut_off(hot_lm_clust_3, 
+                        hot_cluster_3,
+                        "sale")
+
+optimum_clus_4  <-optimum_cut_off(hot_lm_clust_4, 
+                        hot_cluster_4,
+                        "sale")
+
+optimum_clus_5  <-optimum_cut_off(hot_lm_clust_5, 
+                        hot_cluster_5,
+                        "sale")
+
+delta           <- data.frame( Cluster = factor(1:5),
+                               Cut_off = c(optimum_clus_1$cut_off,
+                                           optimum_clus_2$cut_off,
+                                           optimum_clus_3$cut_off,
+                                           optimum_clus_4$cut_off,
+                                           optimum_clus_5$cut_off),
+                               Delta =c(optimum_clus_1$discripensity,
+                                        optimum_clus_2$discripensity,
+                                        optimum_clus_3$discripensity,
+                                        optimum_clus_4$discripensity,
+                                        optimum_clus_5$discripensity))
+
+state_hot_cluster <-dplyr::bind_cols( as.data.frame.table(table(hot_cluster_1$c4c_account_state)),
+                    as.data.frame.table(table(hot_cluster_2$c4c_account_state))[,2],
+                    as.data.frame.table(table(hot_cluster_3$c4c_account_state))[,2],
+                    as.data.frame.table(table(hot_cluster_4$c4c_account_state))[,2],
+                    as.data.frame.table(table(hot_cluster_5$c4c_account_state))[,2])
+names(state_hot_cluster)  <-c("State", "Cluster 1", "Cluster 2", "Cluster 3", "Cluster 4", "Cluster 5")
+
+```
+
+We first check the silhouette of the five selected clusters, we have match that is acceptable but not extradinary with a level  > .1. We can notice that we have few not well centered observations. For further analysis, the extraction of the negative values could give an information on their sale/not sale status. 
+
+```{r silhouette_5, echo=FALSE}
+sil5 <-silhouette(hot_clust_fit)
+# sil5 <-as.data.frame(sil5[,1:3]) %>%
+#              dplyr::group_by(cluster) %>%
+#              dplyr::summarise( mean_silhouette = mean(sil_width))
+# knitr::kable(sil5)
+factoextra::fviz_silhouette(hot_clust_fit, print.summary = FALSE)
+```
+
+ 
+
+If we relate to the silhouette we could see in the following visual the dispersion and the overlapping between the clusters, the medoid could give us the center of those clusters. The reference observations are centered around **apartment** and **commercial**, which are the two frequent types of projects. 
+
+Concerning the project status, we can notice that **low_chance** has not been pickup as a cneter of medoid, where this type of project status is the most frequent as mentioned above. 
+
+```{r medoid, echo=FALSE}
+knitr::kable(for_hot_cluster[hot_clust_fit$medoids,] %>% 
+   dplyr::select( sale,type,log_value,c4c_account_state,bci_project_status ))
+# We extract the silhouette which are negative 
+negative_silhoutte <- as.data.frame(sil5[,]) %>%
+                          dplyr::filter( sil_width < 0)
+number_sales_silhouette <-sum(as.integer(for_hot_cluster[rownames(negative_silhoutte),"sale"]$sale)-1)
+
+```
+
+The no sale is the current selection as mentioned extracting the negative silhouette can deliver information about the sale, we have `r number_sales_silhouette` sales in a sample of  `r nrow(negative_silhoutte)` observations, or about `r number_sales_silhouette / (number_sales_silhouette+ nrow(negative_silhoutte))*100` % concentration. 
+
+## Hierarchical clustering
+
+Instead of using a random allocation for clsuter center, we use a hierarchical clustering, using the same metrics. The follwing visual delivers a pattern with four clusters in this case. At the highest level the distance are very similar, the cluster on left seems more heterogeneous. 
+
+What could be of interest is to explore the observations in the hierarchy. 
+
+```{r hisrachy_clust, echo=FALSE}
+hierarchal_clust <-agnes(hot_disimilarity)
+plot(hierarchal_clust, which.plots = 2, main="Hot hierarchical cluster")
+```
+
+
+## Clusters, dispersion and pam
+
+As previously, we check if the clustering using **pam** and hierachy, in this section we explore the **pam** clustering and the compactness of teh clusters. We should be careful as **t_sne** is used and the distance is normally well preserved. 
+
+```{r dsphotclust, echo=FALSE, fig.align="center"}
+tsne_lm_5 <- Rtsne(hot_disimilarity , is_distance = TRUE)
+
+tsne_sub_sample5 <- tsne_lm_5$Y %>%
+                  data.frame() %>%
+                  setNames(c("X", "Y")) %>%
+                  mutate(cluster = factor(hot_clust_fit$clustering))
+                         
+
+ggplot( data = tsne_sub_sample5 ) +
+        geom_point(aes(x = X, y = Y, color = cluster)) +
+        theme_minimal() +
+        labs( title = "Firts clustering",
+              x= "First Distance",
+              y="Second Distance")
+```
+
+The size of the clusters and there effect usimg the **pam** method is the following, one should keep in mind that an optimization of the cut off has be conducted, its value is mentioned as well. 
+
+The cluster 1 must be different and in this case we have really no sinificant coefficients, what is surprising is that this cluster using **pam** is well centered *(no negative observation on silhouette, see above)* and the **AIC** is low with `r summary(hot_lm_clust_1)$aic`, this cluster has a low incidence of sale knowing that on the whole the **hot** sub sample has 25% sale, this cluster as `r sum( as.integer(hot_cluster_1$sale)-1)/nrow(hot_cluster_1)*100` % sales, in few words it is an example of non sale and the medoid center could be used as reference.  
+
+```{r hot_size, echo=FALSE, message=FALSE, warning=FALSE}
+cluster_sales <-as.data.frame.table(table(for_hot_cluster$cluster, for_hot_cluster$sale))
+names(cluster_sales) <-c("Cluster", "Sale","Number")
+cluster_sales        <- cluster_sales %>%
+                             tidyr::pivot_wider(names_from=Sale,
+                                                values_from= Number)
+cluster_size <- as.data.frame.table(table(for_hot_cluster$cluster))
+names(cluster_size) <-c("Cluster", "Size")
+
+cluster_table <- cluster_size %>%
+                     dplyr::inner_join( cluster_sales, group_by="Cluster") 
+
+cluster_table <- cluster_table %>%
+                     dplyr::inner_join( delta, group_by="Cluster")
+
+names(cluster_table) <-c("Cluster", "Size", "No Sale", "Sale", "Cut-off","Error")
+
+knitr::kable(cluster_table)
+```
+
+The top clusters have differences concerning their variables, the following table shows the distribution of states across the cluster. One could notice the difference in term of states. 
+
+```{r dspstate, echo=FALSE}
+knitr::kable(state_hot_cluster)
+```
+
+#  Coming to homogeneity
+
+The previous paragraph shows that by *dicing* the original data set=, one could come to nearly homogenous sub-sample. In this paragraph the objective is to explore the possibility of build such sub sample, the method used in recursive partition. 
+
+It appears below that we could have homogenous grouping in some cases. and the rules could extracted to build a rule oriented method and then used an other method for the hetrogenous groups. Going further is *rf* by adding randomisation on the variable a better choice, in this case the probability will be similar to the sub_group probability, in few words *RF* is not able to come with good outcomes as shown below. 
+
+```{r rpart_expolore, echo=FALSE}
+hot_part <-rpart::rpart(sale~type+log_value+c4c_account_state+bci_project_status,
+                        data= hot_data)
+plot(hot_part)
+text(hot_part, use.n = TRUE)
+# Rf exploration
+hot_rf <-randomForest::randomForest( sale~type+log_value+c4c_account_state+bci_project_status,
+                                     data= na.omit(hot_data))
+
+sale_predict <-predict(hot_rf, type="response")
+# We optimise
+rf_cutoff <-optimum_cut_off(hot_rf, na.omit(hot_data), "sale")
+
+```
+
+## Toward accuracy 
+
+Using **RF** and no optimization of cut off the results are as follow, as in case of **lm**, we could increase the classification using optimized cut off and building a stack of **rf** and **lm**.  In this first part we build the first ensemble model only. 
+
+```{r rf_results, echo=FALSE}
+knitr::kable(table(na.omit(hot_data)$sale, sale_predict))
+```
+
+By optimizing the cut-off we reach a level of error of `r rf_cutoff$discripensity` errors out of  the **hot**  sample of `r nrow(na.omit(hot_data))`  observations or a level of error of `r round(rf_cutoff$discripensity / nrow(na.omit(hot_data)) * 100, 2)` %, which is very acceptable. 
+
+
+# Conclusion 
+
+It is possible to get a segmentation of the requests, the main question raised after this analysis is the level of precision to be achieved with the current data set.  At this stage it appears that the method which will bring the most is an ensemble made of partitioning models and certainly split on the internal **dulux** separation **hot** and **warm**. 
+
+As mentioned in the introduction, the life cycle of the company could be a variable with effect=, which will leverage the sub sampling of the original data set. 
+
+
+
+
+
+
