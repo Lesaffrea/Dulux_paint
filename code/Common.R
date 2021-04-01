@@ -64,7 +64,6 @@ optimum_cut_off <-function( model, data, response){
 #
 # n output: the distance of the k train observation with the input
 #
-library(philentropy)
 knn <- function(train, test, k, method, response){
   # Test
   assertthat::assert_that(is.data.frame(train))
@@ -75,7 +74,7 @@ knn <- function(train, test, k, method, response){
   train_na <-sum(is.na(train))
   test_na  <-sum(is.na(test))
   if( train_na > 0 | test_na > 0){
-      message("Some NA have been detected in the train and test, those obsrevation are excluded from the model")
+      message("Some NA have been detected in the train and test, those observations are excluded from the model")
       if( train_na > 0){ train <-na.omit(train)}
       if( test_na > 0) { test  <-na.omit(test) }
   }
@@ -85,14 +84,19 @@ knn <- function(train, test, k, method, response){
     dplyr::mutate( index=dplyr::row_number())
 
   train   <-train %>%
-    dplyr::select(-response)
+    dplyr::select(-response) %>%
     dplyr::mutate(index = dplyr::row_number())
 
+  if( response %in% names(test)){
+      message("The response variable was in the test data set. It has been removed")
+      test <- test %>%
+              dplyr::select(-response)
+  }
   #   We test the class
   all_class <-sapply(train, class)
   have_character <-any(stringr::str_detect(all_class,"character") == TRUE)
   if( have_character){
-    message("train data set includes characters varaiables, they have been transformed in factor for the distance")
+    message("Train data set includes characters variables, they have been transformed in factor for the distance")
     character_variables <-which(stringr::str_detect(all_class,"character") == TRUE)
     for( index_factor in character_variables){
          train[,index_factor] <-factor(train[,index_factor])
@@ -107,32 +111,28 @@ knn <- function(train, test, k, method, response){
   neigh     <- matrix(0, nrow = n.test, ncol = k)
   ref_train <- matrix(0, nrow = n.test, ncol = k)
 
-  ddist <- data.frame( dist=numeric(),
-                       index= integer())
-
   for(i in 1:n.test) {
-    for(j in 1:n.train) {
-      xmat     <- rbind(test[i,], train[j, -index_index ])        #we make a 2 row matrix combining the current test and train rows
-      ddist$dist[j]  <- distance(as.data.frame(xmat), method)  #then we calculate the distance and append it to the ddist vector.
-      ddist$index[j] <- train$index[j]
-    }
-    ddist <- ddist %>%
-                dplyr::arrange(dist)
-    neigh[i, ]    <- ddist$dist[1:k]
-    ref_train[i,] <-ddist$index[1:k]
+      xmat          <- rbind(test[i,], train[, -index_index ])        #we make a 2 row matrix combining the current test and train rows
+      all_distances <- as.matrix(cluster::daisy(as.data.frame(xmat), metric= method))[1,-1]  #then we calculate the distance and append it to the ddist vector.
+      all_distances <- data.frame(dist=all_distances)
+      all_distances$index <-train$index
+      all_distances  <-all_distances %>%
+                           dplyr::arrange( dist)
+    neigh[i, ]    <- all_distances$dist[1:k]
+    ref_train[i,] <- all_distances$index[1:k]
   }
   # now that we have the closest we must build the response
   class_response <-class(train_response[, response])
-  if(class_reponse == "factor"){
+  if(class_response == "factor"){
     predict <-NULL
     for(test_index in 1:n.test){
       freq<-as.data.frame(table(neigh[test_index, ]))
-      back[test_index] <-freq$freq[which(freq$Freq == max(freq$Freq ))]
+      predict[test_index] <-freq$freq[which(freq$Freq == max(freq$Freq ))]
     }
   }else{
     predict  = numeric(n.test)
     for(test_index in 1:n.test){
-      predict[test_index] <- mean(neigh[test_index, ])
+      predict[test_index] <- mean(train_response[,response, drop=TRUE][ref_train[test_index, ]])
     }
   }
 

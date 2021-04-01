@@ -10,7 +10,6 @@ output:
 ```{r  init, echo=FALSE, message=FALSE, warning=FALSE}
  library(tidyverse)
 library(dplyr)
-library(skimr)
 library(DataExplorer)
 library(ggplot2)
 library(ggshadow)
@@ -450,7 +449,9 @@ to_share   <- initial_data %>%
                                      c4c_account_state = factor(c4c_account_state),
                                      bci_project_status = factor(bci_project_status)) %>%
                       dplyr::filter( user_status_code_text != "Unactioned")
-write.csv(to_share , "../Data/to_share.csv")
+
+# We save the dat set here with all the transformations
+write.csv(to_share , first_data)
 # End to share 
 
 warm_data <- initial_data %>%
