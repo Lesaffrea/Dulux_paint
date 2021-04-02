@@ -10,5 +10,8 @@ This repository is about marketing segmentation for **Dulux**, a paint company. 
 # Markdown and script 
 
 
-EDA.Rmd  this is the intial analysis, it includes data transformation and a first exploration of models. 
+**EDA.Rmd**  this is the intial analysis, it includes data transformation and a first exploration of models. 
+
+
+**Models.Rmd**  this is the development of a stcaking model, in this markdown we use the stack method. It is still an exploration. 
 
