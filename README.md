@@ -11,8 +11,14 @@ This repository is about marketing segmentation for **Dulux**, a paint company. 
 
 **Dataset_1.rmd** this document generate the second data set, we use this one as main data set
 
-**EDA.Rmd**  this is the intial analysis, it includes data transformation and a first exploration of models. 
-
+**EDA.Rmd**  this is the initial analysis, it includes data transformation and a first exploration of models. This includes part of modelling
 
 **Models.Rmd**  this is the development of a stcaking model, in this markdown we use the stack method. It is still an exploration. 
+
+
+# Python scripts 
+
+This is new to this project. 
+
+**remarks_analysis.ipnb** this notebook check the filed remarks
 
