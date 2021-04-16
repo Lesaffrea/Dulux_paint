@@ -1,0 +1,37 @@
+---
+title: "Data set building"
+author: "Alain Lesaffre"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+---
+```{r  init, echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(dplyr)
+library(DataExplorer)
+library(ggplot2)
+library(ggshadow)
+library(readr)
+library(readxl)
+source("./common.R")
+c4c_data <-janitor::clean_names(readxl::read_xlsx(c4c_file ))
+bci_data   <-janitor::clean_names(readxl::read_xlsx(dulux_raw_file, sheet="BCI Lead data" ) )
+all_data   <-bci_data  %>%
+                      dplyr::inner_join( c4c_data, by=c( "projectid" = "external_id")) %>% 
+                      dplyr::select("projectid","name", "company", "qualification_level_code_text", "user_status_code_text" ,"account_life_cycle_status_code_text",
+                                    "life_cycle_status_code_text", "origin_type_code_text",  "priority_code_text",  "group_code_text", "account_state",
+                                    "project_type", "projectstage","project_status" ,"remarks", "origin_type_code_text", "creation_date_time",
+                                    "life_cycle_status_code_text", "value") %>%
+                      dplyr::mutate( creation_date_time = stringr::str_sub(creation_date_time, 1,19),
+                                     creation_date = as.POSIXct(creation_date_time)) %>%
+                      dplyr::select(-creation_date_time )
+                    
+
+```
+# Summary
+
+In this document, we build a new data set compare to the one used in **EDA**. The point is to add mre fields. 
+
+# Overview

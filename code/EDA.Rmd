@@ -8,7 +8,7 @@ output:
     highlight: github
 ---
 ```{r  init, echo=FALSE, message=FALSE, warning=FALSE}
- library(tidyverse)
+library(tidyverse)
 library(dplyr)
 library(DataExplorer)
 library(ggplot2)
