@@ -9,6 +9,7 @@ This repository is about marketing segmentation for **Dulux**, a paint company. 
 
 # Markdown and script 
 
+**Dataset_1.rmd** this document generate the second data set, we use this one as main data set
 
 **EDA.Rmd**  this is the intial analysis, it includes data transformation and a first exploration of models. 
 
