@@ -21,17 +21,28 @@ bci_data   <-janitor::clean_names(readxl::read_xlsx(dulux_raw_file, sheet="BCI L
 all_data   <-bci_data  %>%
                       dplyr::inner_join( c4c_data, by=c( "projectid" = "external_id")) %>% 
                       dplyr::select("projectid","name", "company", "qualification_level_code_text", "user_status_code_text" ,"account_life_cycle_status_code_text",
-                                    "life_cycle_status_code_text", "origin_type_code_text",  "priority_code_text",  "group_code_text", "account_state",
+                                    "life_cycle_status_code_text",   "priority_code_text",  "group_code_text", "account_state",
                                     "project_type", "projectstage","project_status" ,"remarks", "origin_type_code_text", "creation_date_time",
                                     "life_cycle_status_code_text", "value") %>%
                       dplyr::mutate( creation_date_time = stringr::str_sub(creation_date_time, 1,19),
                                      creation_date = as.POSIXct(creation_date_time)) %>%
                       dplyr::select(-creation_date_time )
                     
-
+saveRDS(all_data, second_data)
 ```
 # Summary
 
 In this document, we build a new data set compare to the one used in **EDA**. The point is to add mre fields. 
 
 # Overview
+
+The data set information are the following:
+
+|  Attribute           | Value     |
+|----------------------|-----------|
+| Number observations  | `r nrow(all_data)` | 
+| Number of hot        | `r sum( all_data$qualification_level_code_text =="Hot")`|
+| Median value hot     | `r median( all_data$value[all_data$qualification_level_code_text =="Hot"])`|
+
+
+
