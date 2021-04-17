@@ -11,6 +11,7 @@ output:
 options( scipen = 99999)
 library(tidyverse)
 library(dplyr)
+library(vtreat)
 library(DataExplorer)
 library(ggplot2)
 library(ggshadow)
@@ -28,13 +29,72 @@ all_data   <-bci_data  %>%
                       dplyr::mutate( creation_date_time = stringr::str_sub(creation_date_time, 1,19),
                                      creation_date = as.POSIXct(creation_date_time),
                                      opportunity   = ifelse(contact_uuid == "NULL", 0,1)) %>%
+                      dplyr::mutate( log_value = log(value)) %>%
                       dplyr::select(-creation_date_time, - contact_uuid )
                     
+
+#
+#
+#  As in EDA
+#
+#
+all_data <-all_data %>% 
+             dplyr::mutate( project_type = stringr::str_to_lower(project_type),
+                            type = ifelse( stringr::str_detect(project_type, "apartment"),
+                                           "apartment", 
+                                           NA),
+                            type = ifelse( is.na(type) & stringr::str_detect(project_type, "townhouse"),
+                                           "townhouse", 
+                                           type),
+                            type = ifelse( is.na(type) & stringr::str_detect(project_type, "house|chalet"),
+                                           "house", 
+                                           type),
+                            type = ifelse( is.na(type) & stringr::str_detect(project_type, "commercial|motel|hotel|showroom|industrial|supermarket|factory"),
+                                           "commercial", 
+                                           type),
+                             type = ifelse( is.na(type) & stringr::str_detect(project_type, "office"),
+                                           "commercial", 
+                                           type),
+                             type = ifelse( is.na(type) & stringr::str_detect(project_type, "road"),
+                                           "road", 
+                                           type),
+                            type = ifelse( is.na(type) & stringr::str_detect(project_type, "streetscap|intersection"),
+                                           "road", 
+                                           type),
+                            type = ifelse( is.na(type) & stringr::str_detect(project_type, "aged care|retirement"),
+                                           "aged_care", 
+                                           type),
+                            type = ifelse( is.na(type) & stringr::str_detect(project_type, "retirement village|senior living villa|senior living unit"),
+                                           "aged_care", 
+                                           type),
+                            type = ifelse( is.na(type) & stringr::str_detect(project_type, "cycle"),
+                                           "road", 
+                                           type),
+                            type = ifelse( is.na(type) & stringr::str_detect(project_type, "hotel"),
+                                           "hospitality", 
+                                           type),
+                             type = ifelse( is.na(type) & stringr::str_detect(project_type, "restaurant"),
+                                           "hospitality", 
+                                           type),
+                            type = ifelse( is.na(type) & stringr::str_detect(project_type, "prison|school|classroom|community centre|social housing|bridge|childcare centre|hospital|medical|water infrastructure|childcare centre|airport"),
+                                           "public", 
+                                           type),
+                            type  = ifelse( is.na(type), 
+                                            "other",
+                                            type)
+                            )
+all_data <-all_data %>% 
+             dplyr::mutate( project_status =ifelse( stringr::str_detect(project_status, "Rezoning|Tenders To Be Called|Site Works Commenced|Construction Certificate Approved|Development Approval|Tenders Called"), "low_effect",project_status ))
+        
+        
+        
+        
+
 saveRDS(all_data, second_data)
 ```
 # Summary
 
-In this document, we build a new data set compare to the one used in **EDA**. The point is to add mre fields. 
+In this document, we build a new data set compare to the one used in **EDA**. The point is to add mre fields, the response we are working with is the opportunities, which is this case is very different that in **EDA** for Warm but similar for Hot. 
 
 # Overview
 
@@ -56,7 +116,64 @@ The data set information are the following:
 | Percent Warm converted | `r sum(all_data$user_status_code_text[all_data$qualification_level_code_text =="Warm"] =="Converted")/ sum(all_data$opportunity[all_data$qualification_level_code_text =="Warm"], na.rm = TRUE)* 100`|
 
 
+The project type after transformation are distributed as follow, the other could be further transformed:
 
+```{r type_porject,echo=FALSE}
+knitr::kable(table(all_data$type), col.names = c("Type","Number occurences"))
+```
+
+
+The value of the opportunities based on the qualification Hot or Warm is as follow.
+
+```{r value_op, echo=FALSE, fig.align="center"}
+ggplot( data = all_data, aes(x=log_value))+
+        geom_density(aes(group=qualification_level_code_text, fill=qualification_level_code_text, col=qualification_level_code_text), alpha=.8) +
+        # geom_rug()+
+        theme_minimal()+
+        labs(title="Values / Oppotunity",
+             x="log value",
+             y="Frequency")
+
+```
+## Data preparation 
+```{r vtreat, warning =FALSE,echo=FALSE}
+variables_to_process <-c("type","log_value", "account_state", "project_status", "projectstage", "consistency_status_code_text", "life_cycle_status_code_text")
+
+
+warm_data   <- all_data %>%
+                   dplyr::filter( qualification_level_code_text =="Warm")
+plan_data <-vtreat::designTreatmentsC(
+        warm_data,
+        varlist = variable_to_process,
+        outcomename = "opportunity",
+        outcometarget =  1,
+        verbose  = FALSE
+)
+
+data_to_process <-vtreat::prepare(plan_data ,
+                                  warm_data)
+```
+
+Due to the fact that we deal with quantitative variable, we do further trasformation such as mapping the effect of the category.
+
+# Simple models 
+```{r simple_models, echo=FALSE}
+warm_model <-glm( opportunity  ~ .,
+                  family = binomial,
+                  data = data_to_process %>% select( !which(stringr::str_detect(names(data_to_process), "catP$"))))
+warm_predict <-predict(warm_model  , type = "response")
+
+```
+
+
+The results for **Warm** are as follow with cut off of .5 and the **catB** only:
+
+| Reference       | Value  |
+|-----------------|--------|
+|  True positive  | `r sum( data_to_process$opportunity ==1 & warm_predict > .5)` |
+|  False positive | `r sum( data_to_process$opportunity ==0 & warm_predict > .5)` |
+|  False negative | `r sum( data_to_process$opportunity ==1 & warm_predict <= .5)` |
+|  True negative  | `r sum( data_to_process$opportunity ==0  & warm_predict <= .5)` |
 
 
 
