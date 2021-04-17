@@ -154,7 +154,7 @@ data_to_process <-vtreat::prepare(plan_data ,
                                   warm_data)
 ```
 
-Due to the fact that we deal with quantitative variable, we do further trasformation such as mapping the effect of the category.
+Due to the fact that we deal with quantitative variables, we do further trasformation such as mapping the effect of the categories. This transfomation adds a level of complexity concerning the interpretation as we deal with conditional probability.  
 
 # Simple models 
 ```{r simple_models, echo=FALSE}
@@ -174,6 +174,16 @@ The results for **Warm** are as follow with cut off of .5 and the **catB** only:
 |  False positive | `r sum( data_to_process$opportunity ==0 & warm_predict > .5)` |
 |  False negative | `r sum( data_to_process$opportunity ==1 & warm_predict <= .5)` |
 |  True negative  | `r sum( data_to_process$opportunity ==0  & warm_predict <= .5)` |
+
+The variables with the p-value <= .1 are the following for the **warm* data set with transformation based on conditional probability. The main variables are now the conditional probabilities, the proportions have been excluded from the data set. 
+
+```{r varibale_pvalue, echo=FALSE}
+to_check <-as.data.frame.matrix( summary(warm_model)$coefficients)
+names(to_check)[4] <-c("p.value")
+effect_var_warm <-rownames(to_check)[which(to_check$p.value <= .1)]
+knitr::kable( effect_var_warm, col.names = c("Variables"))
+```
+
 
 
 
