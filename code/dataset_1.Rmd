@@ -8,6 +8,7 @@ output:
     highlight: github
 ---
 ```{r  init, echo=FALSE, message=FALSE, warning=FALSE}
+options( scipen = 99999)
 library(tidyverse)
 library(dplyr)
 library(DataExplorer)
@@ -52,7 +53,7 @@ The data set information are the following:
 | Number Hot converted | `r sum(all_data$user_status_code_text[all_data$qualification_level_code_text =="Hot"] =="Converted")`|
 | Number Warm converted | `r sum(all_data$user_status_code_text[all_data$qualification_level_code_text =="Warm"] =="Converted")`|
 | Percent Hot converted  | `r sum(all_data$user_status_code_text[all_data$qualification_level_code_text =="Hot"] =="Converted")/ sum(all_data$opportunity[all_data$qualification_level_code_text =="Hot"], na.rm = TRUE)* 100`|
-| Percent Warm coverted | `r sum(all_data$user_status_code_text[all_data$qualification_level_code_text =="Warm"] =="Converted")/ sum(all_data$opportunity[all_data$qualification_level_code_text =="Warm"], na.rm = TRUE)* 100`|
+| Percent Warm converted | `r sum(all_data$user_status_code_text[all_data$qualification_level_code_text =="Warm"] =="Converted")/ sum(all_data$opportunity[all_data$qualification_level_code_text =="Warm"], na.rm = TRUE)* 100`|
 
 
 
