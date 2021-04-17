@@ -21,12 +21,13 @@ bci_data   <-janitor::clean_names(readxl::read_xlsx(dulux_raw_file, sheet="BCI L
 all_data   <-bci_data  %>%
                       dplyr::inner_join( c4c_data, by=c( "projectid" = "external_id")) %>% 
                       dplyr::select("projectid","name", "company", "qualification_level_code_text", "user_status_code_text" ,"account_life_cycle_status_code_text",
-                                    "life_cycle_status_code_text",   "priority_code_text",  "group_code_text", "account_state",
+                                    "priority_code_text",  "group_code_text", "account_state", "consistency_status_code_text",
                                     "project_type", "projectstage","project_status" ,"remarks", "origin_type_code_text", "creation_date_time",
-                                    "life_cycle_status_code_text", "value") %>%
+                                    "life_cycle_status_code_text", "value", "contact_uuid") %>%
                       dplyr::mutate( creation_date_time = stringr::str_sub(creation_date_time, 1,19),
-                                     creation_date = as.POSIXct(creation_date_time)) %>%
-                      dplyr::select(-creation_date_time )
+                                     creation_date = as.POSIXct(creation_date_time),
+                                     opportunity   = ifelse(contact_uuid == "NULL", 0,1)) %>%
+                      dplyr::select(-creation_date_time, - contact_uuid )
                     
 saveRDS(all_data, second_data)
 ```
@@ -42,7 +43,20 @@ The data set information are the following:
 |----------------------|-----------|
 | Number observations  | `r nrow(all_data)` | 
 | Number of hot        | `r sum( all_data$qualification_level_code_text =="Hot")`|
+| Number of warm        | `r sum( all_data$qualification_level_code_text =="Warm")`|
 | Median value hot     | `r median( all_data$value[all_data$qualification_level_code_text =="Hot"])`|
+| Opportunities        | `r sum(all_data$opportunity)` |
+| Hot Opportunities    | `r sum(all_data$opportunity[all_data$qualification_level_code_text =="Hot"], na.rm = TRUE)`|
+| Warm Opportunities   | `r sum(all_data$opportunity[all_data$qualification_level_code_text =="Warm"], na.rm = TRUE)` |
+| Number converted     | `r sum(all_data$user_status_code_text =="Converted")` |
+| Number Hot converted | `r sum(all_data$user_status_code_text[all_data$qualification_level_code_text =="Hot"] =="Converted")`|
+| Number Warm converted | `r sum(all_data$user_status_code_text[all_data$qualification_level_code_text =="Warm"] =="Converted")`|
+| Percent Hot converted  | `r sum(all_data$user_status_code_text[all_data$qualification_level_code_text =="Hot"] =="Converted")/ sum(all_data$opportunity[all_data$qualification_level_code_text =="Hot"], na.rm = TRUE)* 100`|
+| Percent Warm coverted | `r sum(all_data$user_status_code_text[all_data$qualification_level_code_text =="Warm"] =="Converted")/ sum(all_data$opportunity[all_data$qualification_level_code_text =="Warm"], na.rm = TRUE)* 100`|
+
+
+
+
 
 
 
