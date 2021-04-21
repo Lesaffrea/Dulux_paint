@@ -18,20 +18,49 @@ library(ggshadow)
 library(readr)
 library(readxl)
 source("./common.R")
-c4c_data <-janitor::clean_names(readxl::read_xlsx(c4c_file ))
+c4c_data   <-janitor::clean_names(readxl::read_xlsx(c4c_file ))
 bci_data   <-janitor::clean_names(readxl::read_xlsx(dulux_raw_file, sheet="BCI Lead data" ) )
+opportunity_data <-janitor::clean_names( read.csv(opportunity_file )) %>%
+                            dplyr::mutate( date = stringr::str_sub( created_on, 1L, 19L),
+                                           date = stringr::str_replace( date ,"T", " "),
+                                           date =as.POSIXct(date)) %>% 
+                            dplyr::mutate( opportunity = 1) %>% 
+                            dplyr::select( btd_reference_id, date, opportunity)
+
+
+op_c4c_data  <- c4c_data   %>% 
+                        dplyr::inner_join( opportunity_data, by=c( "id" = "btd_reference_id")) 
+starting_date  <-min(op_c4c_data$date)
+
+noop_c4c_data  <-c4c_data  %>%
+                       dplyr::mutate( date = stringr::str_sub( creation_date_time, 1L, 19L),
+                                      date = as.POSIXct(date) )%>%
+                       dplyr::filter( !(id %in% op_c4c_data$id)) %>%
+                       dplyr::mutate( opportunity = 0)
+
+
+to_remove_from_op_c4c <-names(op_c4c_data)[!(names(op_c4c_data) %in% names(noop_c4c_data))]
+op_c4c_data           <- op_c4c_data %>%
+                                 select(-to_remove_from_op_c4c)
+clean_c4c_data <- dplyr::bind_rows( noop_c4c_data,
+                                 op_c4c_data  )
+
+
 all_data   <-bci_data  %>%
-                      dplyr::inner_join( c4c_data, by=c( "projectid" = "external_id")) %>% 
+                      dplyr::inner_join(clean_c4c_data, by=c( "projectid" = "external_id")) %>% 
                       dplyr::select("projectid","name", "company", "qualification_level_code_text", "user_status_code_text" ,"account_life_cycle_status_code_text",
                                     "priority_code_text",  "group_code_text", "account_state", "consistency_status_code_text",
                                     "project_type", "projectstage","project_status" ,"remarks", "origin_type_code_text", "creation_date_time",
-                                    "life_cycle_status_code_text", "value", "contact_uuid") %>%
+                                    "life_cycle_status_code_text", "value", "contact_uuid","opportunity") %>%
                       dplyr::mutate( creation_date_time = stringr::str_sub(creation_date_time, 1,19),
                                      creation_date = as.POSIXct(creation_date_time),
-                                     opportunity   = ifelse(contact_uuid == "NULL", 0,1)) %>%
+                                     beg_date      = as.Date(creation_date)) %>%
                       dplyr::mutate( log_value = log(value)) %>%
-                      dplyr::select(-creation_date_time, - contact_uuid )
-                    
+                      dplyr::select(-creation_date_time, - contact_uuid ) 
+
+
+
+lubridate::day(all_data$beg_date) <-1
 
 #
 #
@@ -84,24 +113,24 @@ all_data <-all_data %>%
                                             type)
                             )
 all_data <-all_data %>% 
-             dplyr::mutate( project_status =ifelse( stringr::str_detect(project_status, "Rezoning|Tenders To Be Called|Site Works Commenced|Construction Certificate Approved|Development Approval|Tenders Called"), "low_effect",project_status ))
-        
-        
-        
-        
-
+             dplyr::mutate( project_status =ifelse( stringr::str_detect(project_status, "Rezoning|Tenders To Be Called|Site Works Commenced|Construction Certificate Approved|Development Approval|Tenders Called"), "big_effect",project_status ))
 saveRDS(all_data, second_data)
 ```
 # Summary
 
 In this document, we build a new data set compare to the one used in **EDA**. The point is to add mre fields, the response we are working with is the opportunities, which is this case is very different that in **EDA** for Warm but similar for Hot. 
 
+To reach good prediction we transform the data using conditional probability based on the effect. 
+
 # Overview
+
+The data set has been built based on the date of the first oppurtunity, all observation before this sdate has been removed. One could notice that the field user_status_code_text with **Converted** the meaning is not a transformation in opportunity. 
 
 The data set information are the following:
 
 |  Attribute           | Value     |
 |----------------------|-----------|
+| Starting Date        | `r as.character(starting_date)` |
 | Number observations  | `r nrow(all_data)` | 
 | Number of hot        | `r sum( all_data$qualification_level_code_text =="Hot")`|
 | Number of warm        | `r sum( all_data$qualification_level_code_text =="Warm")`|
@@ -112,8 +141,10 @@ The data set information are the following:
 | Number converted     | `r sum(all_data$user_status_code_text =="Converted")` |
 | Number Hot converted | `r sum(all_data$user_status_code_text[all_data$qualification_level_code_text =="Hot"] =="Converted")`|
 | Number Warm converted | `r sum(all_data$user_status_code_text[all_data$qualification_level_code_text =="Warm"] =="Converted")`|
-| Percent Hot converted  | `r sum(all_data$user_status_code_text[all_data$qualification_level_code_text =="Hot"] =="Converted")/ sum(all_data$opportunity[all_data$qualification_level_code_text =="Hot"], na.rm = TRUE)* 100`|
-| Percent Warm converted | `r sum(all_data$user_status_code_text[all_data$qualification_level_code_text =="Warm"] =="Converted")/ sum(all_data$opportunity[all_data$qualification_level_code_text =="Warm"], na.rm = TRUE)* 100`|
+| Percent Hot converted  | `r round(sum(all_data$user_status_code_text[all_data$qualification_level_code_text =="Hot"] =="Converted")/ sum(all_data$qualification_level_code_text =="Hot", na.rm = TRUE),4)* 100`|
+| Percent Warm converted | `r round(sum(all_data$user_status_code_text[all_data$qualification_level_code_text =="Warm"] =="Converted")/ sum(all_data$qualification_level_code_text =="Warm", na.rm = TRUE),4)* 100`|
+| Percent Hot opportunity  | `r round(sum(all_data$opportunity[all_data$qualification_level_code_text =="Hot"])/ sum(all_data$qualification_level_code_text =="Hot", na.rm = TRUE),4)* 100`|
+| Percent Warm opportunity  | `r round(sum(all_data$opportunity[all_data$qualification_level_code_text =="Warm"])/ sum(all_data$qualification_level_code_text =="Warm", na.rm = TRUE),4)* 100`|
 
 
 The project type after transformation are distributed as follow, the other could be further transformed:
@@ -135,6 +166,7 @@ ggplot( data = all_data, aes(x=log_value))+
              y="Frequency")
 
 ```
+
 ## Data preparation 
 ```{r vtreat, warning =FALSE,echo=FALSE}
 variables_to_process <-c("type","log_value", "account_state", "project_status", "projectstage", "consistency_status_code_text", "life_cycle_status_code_text")
@@ -144,45 +176,122 @@ warm_data   <- all_data %>%
                    dplyr::filter( qualification_level_code_text =="Warm")
 plan_data <-vtreat::designTreatmentsC(
         warm_data,
-        varlist = variable_to_process,
+        varlist = variables_to_process,
         outcomename = "opportunity",
         outcometarget =  1,
         verbose  = FALSE
 )
-
-data_to_process <-vtreat::prepare(plan_data ,
+warm_to_process <-vtreat::prepare(plan_data ,
                                   warm_data)
 ```
 
-Due to the fact that we deal with quantitative variables, we do further trasformation such as mapping the effect of the categories. This transfomation adds a level of complexity concerning the interpretation as we deal with conditional probability.  
+Due to the fact that we deal with quantitative variables, we do further transformation such as mapping the effect of the categories. This transformation adds a level of complexity concerning the interpretation as we deal with conditional probability. As we shall see below the results one **Warm** are acceptable. 
 
-# Simple models 
-```{r simple_models, echo=FALSE}
-warm_model <-glm( opportunity  ~ .,
-                  family = binomial,
-                  data = data_to_process %>% select( !which(stringr::str_detect(names(data_to_process), "catP$"))))
-warm_predict <-predict(warm_model  , type = "response")
+# Time factor 
+```{r time, echo=FALSE}
+cycle_vic <- all_data  %>%
+                   dplyr::filter( account_state =="VIC") %>%
+                   dplyr::group_by(beg_date) %>%
+                   dplyr::summarise(nb_opportunity = sum( opportunity ==1),
+                                    lost_opportunity = sum( opportunity == 0))
+                   
+
+```
+
+Construction is cyclic, in the following garphic we show the opportunity for Victoria.
+
+```{r vic_dsp, echo=FALSE,fig.align="center"}
+ggplot( data = cycle_vic)+
+  geom_line( aes( x= beg_date, y= nb_opportunity, group=1), col="orange", size=1) +
+  theme_minimal()
 
 ```
 
 
-The results for **Warm** are as follow with cut off of .5 and the **catB** only:
+
+
+
+# Simple models 
+```{r simple_models, echo=FALSE, warning= FALSE}
+warm_model <-glm( opportunity  ~ .,
+                  family = binomial,
+                  data = warm_to_process %>% select( !which(stringr::str_detect(names(warm_to_process), "catP$"))))
+warm_predict <-predict(warm_model  , type = "response")
+logistics_deviance <-sum(-2*log(abs(warm_to_process$opportunity -warm_predict)))
+deviance_warm <- residuals(warm_model , type = "response")
+to_check <-as.data.frame.matrix( summary(warm_model)$coefficients)
+```
+
+
+The results for **Warm** are as follow with cut off of .5 and the **catB** only, the transformation in this case is totally based on effect:
 
 | Reference       | Value  |
 |-----------------|--------|
-|  True positive  | `r sum( data_to_process$opportunity ==1 & warm_predict > .5)` |
-|  False positive | `r sum( data_to_process$opportunity ==0 & warm_predict > .5)` |
-|  False negative | `r sum( data_to_process$opportunity ==1 & warm_predict <= .5)` |
-|  True negative  | `r sum( data_to_process$opportunity ==0  & warm_predict <= .5)` |
+|  True positive  | `r sum( warm_to_process$opportunity ==1 & warm_predict > .5)` |
+|  False positive | `r sum( warm_to_process$opportunity ==0 & warm_predict > .5)` |
+|  False negative | `r sum( warm_to_process$opportunity ==1 & warm_predict <= .5)` |
+|  True negative  | `r sum( warm_to_process$opportunity ==0  & warm_predict <= .5)` |
 
-The variables with the p-value <= .1 are the following for the **warm* data set with transformation based on conditional probability. The main variables are now the conditional probabilities, the proportions have been excluded from the data set. 
+The *working* residual is very small with such a prediction, the total residual is of `r sum(deviance_warm)`.
 
-```{r varibale_pvalue, echo=FALSE}
-to_check <-as.data.frame.matrix( summary(warm_model)$coefficients)
-names(to_check)[4] <-c("p.value")
-effect_var_warm <-rownames(to_check)[which(to_check$p.value <= .1)]
-knitr::kable( effect_var_warm, col.names = c("Variables"))
+
+Some variables used are the conditional probabilities expresses as *opportunity | category variables*. 
+
+We should not forget that we have  converted the **type**, **state** and **project state** with conditional probability. Using type of project, which is a transformed data, the **other** category has a probability of .33 to be a non opportunity, or **road** with have 0.065 to be a non opportunity as shown below the apartment has a value of .15 as in hot this value of .55.  
+
+
+Most significant variables:
+
+1. log of the value 
+2. The type transformed  (Conditional probability) 
+3. The hot encoding of the type (Transform data as shown above)
+4. The life_cycle_status_code (Conditional probability)
+5. The hot encoding life_cycle_status_code (Not transformed) 
+
+
+## Hot Model
+```{r hotmaol, echo=FALSE, warning=FALSE}
+variables_to_process <-c("type","log_value", "account_state", "project_status", "projectstage", "consistency_status_code_text", "life_cycle_status_code_text")
+
+
+hot_data   <- all_data %>%
+                   dplyr::filter( qualification_level_code_text =="Hot")
+plan_data <-vtreat::designTreatmentsC(
+        hot_data,
+        varlist = variables_to_process,
+        outcomename = "opportunity",
+        outcometarget =  1,
+        verbose  = FALSE
+)
+hot_to_process <-vtreat::prepare(plan_data ,
+                                  hot_data)
+
+hot_model <-glm( opportunity  ~ .,
+                  family = binomial,
+                  data = hot_to_process %>% select( !which(stringr::str_detect(names(hot_to_process), "catP$"))))
+
+hot_predict <-predict(hot_model  , type = "response")
+deviance_hot <- residuals(hot_model , type = "response")
 ```
+
+We build a global **Hot** model similar to to **Warm**, the only diffrence is the size of the data set, which is of `r nrow(hot_data)` observations. 
+
+
+The results for **Hot** are as follow with cut off of .5 and the **catB** only, the transformation in this case is totally based on effect:
+
+| Reference       | Value  |
+|-----------------|--------|
+|  True positive  | `r sum( hot_to_process$opportunity ==1 & hot_predict > .5)` |
+|  False positive | `r sum( hot_to_process$opportunity ==0 & hot_predict > .5)` |
+|  False negative | `r sum( hot_to_process$opportunity ==1 & hot_predict <= .5)` |
+|  True negative  | `r sum( hot_to_process$opportunity ==0  & hot_predict <= .5)` |
+
+The *working* residual is very small with such a prediction, the total residual is of `r sum(deviance_hot). And the most significant value is the log of the value based on the Z value.  
+
+Most significant variable:
+
+1. log of the value 
+2. The life_cycle_status_code (Conditional probability)
 
 
 

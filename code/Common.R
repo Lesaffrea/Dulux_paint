@@ -8,6 +8,7 @@ dulux_initial_clean <-file.path( data_folder, "Dataset Dulux 2503.xlsx")
 dulux_raw_file       <-file.path( data_folder, "Dulux Leads Data.xlsx")
 #  To rebuil the data set on filed was missing in Dulux leads data.xlsx
 c4c_file <-file.path( data_folder, "C4C Lead data.xlsx")
+opportunity_file <-file.path(data_folder, "Lead to Opportunity.csv")
 
 
 
