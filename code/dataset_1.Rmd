@@ -18,6 +18,8 @@ library(ggshadow)
 library(readr)
 library(readxl)
 library(performance)
+library(caret)
+library(ranger)
 source("./common.R")
 c4c_data   <-janitor::clean_names(readxl::read_xlsx(c4c_file ))
 bci_data   <-janitor::clean_names(readxl::read_xlsx(dulux_raw_file, sheet="BCI Lead data" ) )
@@ -223,6 +225,8 @@ deviance_warm <- residuals(warm_model , type = "response")
 to_check <-as.data.frame.matrix( summary(warm_model)$coefficients)
 ```
 
+As we shall see with **Hot** as well, we have do not have significant coefficient in linear model but good prediction, which  are confirmed using a tree ensemble. What does this mean really? 
+
 
 The results for **Warm** are as follow with cut off of .5 and the **catB** only, the transformation in this case is totally based on effect:
 
@@ -275,7 +279,7 @@ hot_predict <-predict(hot_model  , type = "response")
 deviance_hot <- residuals(hot_model , type = "response")
 ```
 
-We build a global **Hot** model similar to to **Warm**, the only diffrence is the size of the data set, which is of `r nrow(hot_data)` observations. 
+We build a global **Hot** model similar to to **Warm**, the only difference is the size of the data set, which is of `r nrow(hot_data)` observations. 
 
 
 The results for **Hot** are as follow with cut off of .5 and the **catB** only, the transformation in this case is totally based on effect:
@@ -297,14 +301,50 @@ Most significant variable:
 
 The R2 is of `r r2(hot_model)`, which is *good*.
 
-A more detail view of the model with parameters, it is not optimum as the sd includes zero most of the time. The main question is how the model will behave based on new informations. 
+A more detail view of the model with parameters, it is not optimum as the sd includes zero most of the time. The main question is how the model will behave based on new information. As the sd is high, too high.  
 
 
 ```{r dsp_coef_model, echo=FALSE}
 modelsummary::modelsummary(hot_model)
 ```
 
+We can ask ourselef here, if we use an ensemble the sd would be better lower, what is surprising is the low value of working residual. 
 
+hot_to_prhot## Build tree 
+```{r ranger_tree, echo=FALSE}
+library(ranger)
+ranger_model_hot <-ranger(  opportunity  ~ .,
+                            data = hot_to_process %>% select( !which(stringr::str_detect(names(hot_to_process), "catP$"))))
+hot_ranger_predict <-predict(ranger_model_hot, data= hot_to_process %>% select( !which(stringr::str_detect(names(hot_to_process), "catP$"))))
+```
+
+As mentioned we now build a tree to avoid the instability. The results are show below, there is nearly no diffrence between the linear model and the tree type of model, apart from a small change in false positive. For simplicity we could stay with the linear model. The next step will be to use cross valiadtion to check the stability of the model.  
+
+\
+
+| Reference       | Value  |
+|-----------------|--------|
+|  True positive  | `r sum( hot_to_process$opportunity ==1 & hot_ranger_predict$predictions > .5)` |
+|  False positive | `r sum( hot_to_process$opportunity ==0 & hot_ranger_predict$predictions > .5)` |
+|  False negative | `r sum( hot_to_process$opportunity ==1 & hot_ranger_predict$predictions <= .5)` |
+|  True negative  | `r sum( hot_to_process$opportunity ==0  & hot_ranger_predict$predictions <= .5)` |
+
+
+Out of the false positives, it could be of interest to check what are those observations? Are they exceptional? 
+
+```{r cross_validation, echo=FALSE, message=FALSE}
+hot_control <- trainControl(## 10-fold CV
+                           method = "cv",
+                           number = 10)
+
+rf_caret_hot <- train(as.factor(opportunity) ~ ., 
+                data =hot_to_process %>% select( !which(stringr::str_detect(names(hot_to_process), "catP$"))), 
+                method = "ranger",
+                trControl = hot_control)
+
+rf_cater_res <-predict(rf_caret_hot, data = hot_to_process %>% select( !which(stringr::str_detect(names(hot_to_process), "catP$"))))
+confusionMatrix(rf_cater_res, as.factor(hot_to_process$opportunity))
+```
 
 
 
