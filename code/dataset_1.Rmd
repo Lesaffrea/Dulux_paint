@@ -17,6 +17,7 @@ library(ggplot2)
 library(ggshadow)
 library(readr)
 library(readxl)
+library(performance)
 source("./common.R")
 c4c_data   <-janitor::clean_names(readxl::read_xlsx(c4c_file ))
 bci_data   <-janitor::clean_names(readxl::read_xlsx(dulux_raw_file, sheet="BCI Lead data" ) )
@@ -250,7 +251,7 @@ Most significant variables:
 
 
 ## Hot Model
-```{r hotmaol, echo=FALSE, warning=FALSE}
+```{r hotmooel, echo=FALSE, warning=FALSE}
 variables_to_process <-c("type","log_value", "account_state", "project_status", "projectstage", "consistency_status_code_text", "life_cycle_status_code_text")
 
 
@@ -286,12 +287,33 @@ The results for **Hot** are as follow with cut off of .5 and the **catB** only, 
 |  False negative | `r sum( hot_to_process$opportunity ==1 & hot_predict <= .5)` |
 |  True negative  | `r sum( hot_to_process$opportunity ==0  & hot_predict <= .5)` |
 
-The *working* residual is very small with such a prediction, the total residual is of `r sum(deviance_hot). And the most significant value is the log of the value based on the Z value.  
+The *working* residual is very small with such a prediction, the total residual is of `r sum(deviance_hot)`. And the most significant value is the log of the value based on the Z value.  
 
 Most significant variable:
 
 1. log of the value 
 2. The life_cycle_status_code (Conditional probability)
+3. The life_cycle_status_code  hot encoding Converted and Qualified 
+
+The R2 is of `r r2(hot_model)`, which is *good*.
+
+A more detail view of the model with parameters, it is not optimum as the sd includes zero most of the time. The main question is how the model will behave based on new informations. 
+
+
+```{r dsp_coef_model, echo=FALSE}
+modelsummary::modelsummary(hot_model)
+```
+
+
+
+
+
+## Some details about the preprocessing
+
+The preprocessing is made by modeling the inferences. The **CatB** is the contribution to non informative level, this is an impact variable therefor for type the impact is:
+$$ Impact(type) = E[type|Category] - E[type]$$
+
+
 
 
 
