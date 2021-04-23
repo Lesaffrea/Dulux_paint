@@ -14,6 +14,7 @@ library(dplyr)
 library(vtreat)
 library(DataExplorer)
 library(ggplot2)
+library(see)
 library(ggshadow)
 library(readr)
 library(readxl)
@@ -163,7 +164,7 @@ The value of the opportunities based on the qualification Hot or Warm is as foll
 ggplot( data = all_data, aes(x=log_value))+
         geom_density(aes(group=qualification_level_code_text, fill=qualification_level_code_text, col=qualification_level_code_text), alpha=.8) +
         # geom_rug()+
-        theme_minimal()+
+        theme_modern()+
         labs(title="Values / Oppotunity",
              x="log value",
              y="Frequency")
@@ -206,7 +207,7 @@ Construction is cyclic, in the following garphic we show the opportunity for Vic
 ```{r vic_dsp, echo=FALSE,fig.align="center"}
 ggplot( data = cycle_vic)+
   geom_line( aes( x= beg_date, y= nb_opportunity, group=1), col="orange", size=1) +
-  theme_minimal()
+  theme_modern()
 
 ```
 
@@ -310,7 +311,8 @@ modelsummary::modelsummary(hot_model)
 
 We can ask ourselef here, if we use an ensemble the sd would be better lower, what is surprising is the low value of working residual. 
 
-hot_to_prhot## Build tree 
+## Build tree 
+
 ```{r ranger_tree, echo=FALSE}
 library(ranger)
 ranger_model_hot <-ranger(  opportunity  ~ .,
@@ -318,9 +320,9 @@ ranger_model_hot <-ranger(  opportunity  ~ .,
 hot_ranger_predict <-predict(ranger_model_hot, data= hot_to_process %>% select( !which(stringr::str_detect(names(hot_to_process), "catP$"))))
 ```
 
-As mentioned we now build a tree to avoid the instability. The results are show below, there is nearly no diffrence between the linear model and the tree type of model, apart from a small change in false positive. For simplicity we could stay with the linear model. The next step will be to use cross valiadtion to check the stability of the model.  
+As mentioned we now build a tree to avoid the instability. The results are shown below, there is nearly no difference between the linear model and the tree type of model, apart from a small change in false positive. For simplicity we could stay with the linear model. The next step will be to use cross valiadtion to check the stability of the model.  
 
-\
+
 
 | Reference       | Value  |
 |-----------------|--------|
@@ -330,9 +332,9 @@ As mentioned we now build a tree to avoid the instability. The results are show 
 |  True negative  | `r sum( hot_to_process$opportunity ==0  & hot_ranger_predict$predictions <= .5)` |
 
 
-Out of the false positives, it could be of interest to check what are those observations? Are they exceptional? 
+Out of the false positives, it could be of interest to check what are those observations? Are they exceptional? THe confusion matrix is shown below.
 
-```{r cross_validation, echo=FALSE, message=FALSE}
+```{r cross_validation, echo=FALSE, message=FALSE, fig.align="center"}
 hot_control <- trainControl(## 10-fold CV
                            method = "cv",
                            number = 10)
@@ -343,8 +345,21 @@ rf_caret_hot <- train(as.factor(opportunity) ~ .,
                 trControl = hot_control)
 
 rf_cater_res <-predict(rf_caret_hot, data = hot_to_process %>% select( !which(stringr::str_detect(names(hot_to_process), "catP$"))))
-confusionMatrix(rf_cater_res, as.factor(hot_to_process$opportunity))
+hot_confusion <-confusionMatrix(rf_cater_res, as.factor(hot_to_process$opportunity))
+ fourfoldplot(as.array(hot_confusion$table), color = c("lightblue", "orange"))
 ```
+The statistics for the model are as follow, on the whole the model is good.
+
+```{r dsphot_conf, echo=FALSE}
+all_stats <-round(hot_confusion$byClass,2)
+dsp_stats <-data.frame( Statistics =attributes(all_stats)$names,
+                        values = all_stats )
+rownames(dsp_stats) <-NULL
+knitr::kable(dsp_stats)
+
+```
+
+
 
 
 
