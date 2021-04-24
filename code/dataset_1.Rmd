@@ -65,6 +65,7 @@ all_data   <-bci_data  %>%
 
 
 lubridate::day(all_data$beg_date) <-1
+write.csv(all_data, "../data/data_set.csv")
 
 #
 #
