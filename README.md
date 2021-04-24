@@ -20,5 +20,7 @@ This repository is about marketing segmentation for **Dulux**, a paint company. 
 
 This is new to this project. 
 
-**remarks_analysis.ipnb** this notebook check the filed remarks
+**remarks_analysis.ipnb** this notebook check the filed remarks, this notebook is not used.
+
+**models.ipynb**, this noteboom is a transcription of the dataset_1.Rmd R mardown. It covers the minimum the results are very similar to R but not exactly we face the problem of implementation here. This notebook does not include the tree model built in dataset_1.Rmd. As it is in **Python** the syntax is different as not expected. 
 
