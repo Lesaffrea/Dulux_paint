@@ -125,7 +125,7 @@ saveRDS(all_data, second_data)
 
 In this document, we build a new data set compare to the one used in **EDA**. The point is to add mre fields, the response we are working with is the opportunities, which is this case is very different that in **EDA** for Warm but similar for Hot. 
 
-To reach good prediction we transform the data using conditional probability based on the effect. 
+To reach good prediction we transform the data using conditional probability based on the effect. What is a surprise is thae have clear speartion between **Hot** and **Warm** and that for stability it is better to pick up a tree method. 
 
 # Overview
 
@@ -310,7 +310,18 @@ A more detail view of the model with parameters, it is not optimum as the sd inc
 modelsummary::modelsummary(hot_model)
 ```
 
-We can ask ourselef here, if we use an ensemble the sd would be better lower, what is surprising is the low value of working residual. 
+To check we show the prediction, we notice that two group could be well separated and therefor exact logistic could be used. Th results will not be very different therefor we use a tree method which give very similar results but is more stable. 
+
+```{r prediction_hot, echo=FALSE, fig.align="center"}
+hist(hot_predict, col="orange", main="prediction hot", breaks=20)
+```
+
+
+
+
+
+
+
 
 ## Build tree 
 
@@ -360,15 +371,13 @@ knitr::kable(dsp_stats)
 
 ```
 
-
-
-
-
 ## Some details about the preprocessing
 
 The preprocessing is made by modeling the inferences. The **CatB** is the contribution to non informative level, this is an impact variable therefor for type the impact is:
 $$ Impact(type) = E[type|Category] - E[type]$$
+## Few notes
 
+In both cases the logistic regression is nearlt perfact and the two groups could linearly separated, which means that first the logistic regression is not satbble ans then a treeem method is more adequate. 
 
 
 
