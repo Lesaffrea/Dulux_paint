@@ -331,8 +331,9 @@ fourfoldplot(as.array(hot_firth_confusion$table), color = c("lightblue", "orange
 
 The main coefficient with impact and significance as expected the conditional probability are part of the variable with significance. 
 
-```{r firsth_coef. echo=FALSE}
-names_coef <-rownames(all_sum$coefficients)
+```{r firsth_coef, echo=FALSE}
+all_sum <-summary(hot_firth )
+names_coef <-rownames(all_sum$coefficients) [which(all_sum$coefficients[,4] <.05)]
 value_coeff  <-all_sum$coefficients[,1][which(all_sum$coefficients[,4] <.05)]
 dps_coef <-data.frame( Variable = names_coef ,
                        Coef_Value = value_coeff )
