@@ -21,6 +21,7 @@ library(readxl)
 library(performance)
 library(caret)
 library(ranger)
+library(brglm)
 source("./common.R")
 c4c_data   <-janitor::clean_names(readxl::read_xlsx(c4c_file ))
 bci_data   <-janitor::clean_names(readxl::read_xlsx(dulux_raw_file, sheet="BCI Lead data" ) )
@@ -316,11 +317,27 @@ To check we show the prediction, we notice that two group could be well separate
 hist(hot_predict, col="orange", main="prediction hot", breaks=20)
 ```
 
+### Firth method 
 
+As mentioned we have instability in the logistic regression, therefore we use the reduction of **Firth**. The results are show below and are sligthly better than with tree. 
 
+```{r first_method, echo=FALSE, warning=FALSE}
+hot_firth <- brglm( opportunity  ~ .,  data = hot_to_process %>% select( !which(stringr::str_detect(names(hot_to_process), "catP$"))))
+predict_firth <-predict(hot_firth, type="response")
+predict_firth_fact <-factor(ifelse( predict_firth > .5, 1,0))
+hot_firth_confusion <-confusionMatrix(predict_firth_fact, as.factor(hot_to_process$opportunity))
+fourfoldplot(as.array(hot_firth_confusion$table), color = c("lightblue", "orange"))
+```
 
+The main coefficient with impact and significance as expected the conditional probability are part of the variable with significance. 
 
-
+```{r firsth_coef. echo=FALSE}
+names_coef <-rownames(all_sum$coefficients)
+value_coeff  <-all_sum$coefficients[,1][which(all_sum$coefficients[,4] <.05)]
+dps_coef <-data.frame( Variable = names_coef ,
+                       Coef_Value = value_coeff )
+knitr::kable(value_coeff )
+```
 
 
 ## Build tree 
