@@ -319,17 +319,17 @@ hist(hot_predict, col="orange", main="prediction hot", breaks=20)
 
 ### Firth method 
 
-As mentioned we have instability in the logistic regression, therefore we use the reduction of **Firth**. The results are show below and are sligthly better than with tree. 
+As mentioned we have instability in the logistic regression, therefore we use the reduction of **Firth**. The results are show below and are slightly better than with tree. 
 
 ```{r first_method, echo=FALSE, warning=FALSE}
-hot_firth <- brglm( opportunity  ~ .,  data = hot_to_process %>% select( !which(stringr::str_detect(names(hot_to_process), "catP$"))))
+hot_firth <- brglm( opportunity  ~ .,  data = hot_to_process %>% select( !which(stringr::str_detect(names(hot_to_process), "catP$"))), pl= TRUE)
 predict_firth <-predict(hot_firth, type="response")
 predict_firth_fact <-factor(ifelse( predict_firth > .5, 1,0))
 hot_firth_confusion <-confusionMatrix(predict_firth_fact, as.factor(hot_to_process$opportunity))
 fourfoldplot(as.array(hot_firth_confusion$table), color = c("lightblue", "orange"))
 ```
 
-The main coefficient with impact and significance as expected the conditional probability are part of the variable with significance. 
+The main coefficient with impact and significance as expected the conditional probability are part of the variable with significance. The **catB** of the project state has quite a high coefficient specially associated with the state **Deferred** as one could notice. The surprise is more the type **apartement** and **commercial** in **Catb** the conditional probability is of about .5 
 
 ```{r firsth_coef, echo=FALSE}
 all_sum <-summary(hot_firth )
@@ -362,7 +362,7 @@ As mentioned we now build a tree to avoid the instability. The results are shown
 |  True negative  | `r sum( hot_to_process$opportunity ==0  & hot_ranger_predict$predictions <= .5)` |
 
 
-Out of the false positives, it could be of interest to check what are those observations? Are they exceptional? THe confusion matrix is shown below.
+Out of the false positives, it could be of interest to check what are those observations? Are they exceptional? The confusion matrix is shown below.
 
 ```{r cross_validation, echo=FALSE, message=FALSE, fig.align="center"}
 hot_control <- trainControl(## 10-fold CV
